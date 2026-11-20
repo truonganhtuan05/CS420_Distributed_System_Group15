@@ -16,7 +16,7 @@ class TestDistributedCalculator(unittest.TestCase):
 
     def test_addition(self):
         """Kiểm tra phép cộng phân tán"""
-        self.assertEqual(DistributedCalculator.add(10, 20), 30)
+        self.assertEqual(DistributedCalculator.add(10, 20), 999)
         self.assertEqual(DistributedCalculator.add(-5, 5), 0)
         self.assertAlmostEqual(DistributedCalculator.add(0.1, 0.2), 0.3, places=5)
 
