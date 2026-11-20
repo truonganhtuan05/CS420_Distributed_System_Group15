@@ -1,0 +1,126 @@
+name: CS420 Distributed CI-CD Pipeline
+
+# ==============================================================================
+# HỆ THỐNG ĐIỀU PHỐI TÁC VỤ PHÂN TÁN (DISTRIBUTED TASK ORCHESTRATION)
+# Môn học: Hệ phân tán (CS420G) - Nhóm 15
+# Sinh viên: Lê Văn Hoài Rin, Nguyễn Trung Hiếu, Trương Anh Tuấn
+# ==============================================================================
+
+on:
+  push:
+    branches: [ "main", "master", "develop" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Cho phép kích hoạt thủ công từ giao diện GitHub
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # JOB 1: KIỂM TRA CHẤT LƯỢNG MÃ NGUỒN (STATIC CODE ANALYSIS & LINTING)
+  # ----------------------------------------------------------------------------
+  code-quality:
+    name: "🔍 Static Analysis & Lint"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Mã Nguồn từ Distributed Hub"
+        uses: actions/checkout@v4
+
+      - name: "Khởi tạo môi trường Python 3.11"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Cài đặt công cụ phân tích tĩnh"
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+
+      - name: "Kiểm tra cú pháp và cấu trúc code (Linting)"
+        run: |
+          # Dừng nếu có lỗi cú pháp hoặc undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Cảnh báo các lỗi chuẩn PEP8 (không dừng build)
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  # ----------------------------------------------------------------------------
+  # JOB 2: TÍNH TOÁN SONG SONG PHÂN TÁN (DISTRIBUTED MATRIX TESTING)
+  # Điều phối 3 Runner độc lập chạy song song trên các môi trường Python khác nhau
+  # ----------------------------------------------------------------------------
+  distributed-matrix-test:
+    name: "🧪 Test Node (Python ${{ matrix.python-version }})"
+    needs: code-quality
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # Tiếp tục chạy các node khác kể cả khi 1 node bị lỗi để quan sát
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: "Checkout bản sao phân tán (Replica)"
+        uses: actions/checkout@v4
+
+      - name: "Cấu hình Python ${{ matrix.python-version }} trên Runner ảo"
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: "Thu thập thông tin Worker Node (Distributed Node Metadata)"
+        run: |
+          echo "========================================================"
+          echo "Worker Hostname: $(hostname)"
+          echo "Runner OS:       $(uname -s -r -v)"
+          echo "Python Core:     $(python --version)"
+          echo "Commit SHA:      ${{ github.sha }}"
+          echo "Triggered By:    ${{ github.actor }}"
+          echo "========================================================"
+
+      - name: "Cài đặt thư viện kiểm thử"
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: "Thực thi bộ Unit Test tự động"
+        run: |
+          pytest -v --tb=short tests/
+
+  # ----------------------------------------------------------------------------
+  # JOB 3: ĐÓNG GÓI BẢN PHÁT HÀNH (BUILD & CONTAINERIZATION)
+  # ----------------------------------------------------------------------------
+  build-and-package:
+    name: "📦 Build & Containerization"
+    needs: distributed-matrix-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Mã Nguồn"
+        uses: actions/checkout@v4
+
+      - name: "Xây dựng Artifact phân phối"
+        run: |
+          mkdir -p dist
+          tar -czvf dist/app-${{ github.sha }}.tar.gz app/ requirements.txt
+          echo "Tạo gói lưu trữ phân phối thành công: dist/app-${{ github.sha }}.tar.gz"
+
+      - name: "Lưu trữ Artifact lên GitHub Cloud Storage"
+        uses: actions/upload-artifact@v4
+        with:
+          name: distributed-app-package
+          path: dist/
+          retention-days: 7
+
+  # ----------------------------------------------------------------------------
+  # JOB 4: MÔ PHỎNG TRIỂN KHAI PHÂN TÁN (CONTINUOUS DEPLOYMENT)
+  # ----------------------------------------------------------------------------
+  deploy-simulation:
+    name: "🚀 Continuous Deployment Simulation"
+    needs: build-and-package
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Mô phỏng kích hoạt triển khai tới Production Node"
+        run: |
+          echo "========================================================"
+          echo ">>> [CD DEPLOYMENT SUCCESSFUL] <<<"
+          echo "Thời gian triển khai: $(date -u)"
+          echo "Mã phiên bản:         ${{ github.sha }}"
+          echo "Nhánh phát hành:      ${{ github.ref }}"
+          echo "Người thực hiện:      ${{ github.actor }}"
+          echo "Trạng thái:           Hệ thống đã phân phối thành công tới các Web Nodes!"
+          echo "========================================================"
